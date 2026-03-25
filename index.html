@@ -6,71 +6,91 @@
     <title>SquadStreak</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <link rel="manifest" href="m.png">
     <style>
+        :root {
+            --primary: #f97316;
+            --primary-light: #ffedd5;
+            --bg: #ffffff;
+            --text: #000000;
+        }
         body { 
             -webkit-tap-highlight-color: transparent; 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: white;
-            color: black;
+            background-color: var(--bg);
+            color: var(--text);
+            transition: all 0.3s ease;
         }
+        .text-primary { color: var(--primary); }
+        .bg-primary { background-color: var(--primary); }
+        .border-primary { border-color: var(--primary); }
+        .border-primary-light { border-color: var(--primary-light); }
+        
         .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-        .orange-glow { box-shadow: 0 10px 30px -5px rgba(249, 115, 22, 0.4); }
         .neo-card { 
             border: 2px solid black; 
             box-shadow: 4px 4px 0px 0px rgba(0,0,0,1); 
             transition: all 0.1s ease;
         }
-        .neo-card:active { 
-            transform: translate(2px, 2px); 
-            box-shadow: 1px 1px 0px 0px rgba(0,0,0,1); 
+        .neo-card:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0px 0px rgba(0,0,0,1); }
+        
+        .freeze-gradient {
+            background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
         }
-        .loading-flame { animation: bounce 1s infinite; }
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-20px); }
+        
+        .freeze-empty {
+            background: #f3f4f6;
+            color: #9ca3af;
+            border: 2px dashed #d1d5db;
+        }
+
+        .day-chip {
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        .day-chip.active {
+            background-color: white;
+            color: var(--primary);
+            border-color: white;
+            transform: scale(1.1);
         }
     </style>
 </head>
 <body class="overflow-x-hidden">
 
     <!-- Header -->
-    <header class="fixed top-0 left-0 right-0 h-16 bg-white border-b-2 border-orange-100 flex items-center justify-between px-6 z-50">
+    <header class="fixed top-0 left-0 right-0 h-16 bg-white border-b-2 border-primary-light flex items-center justify-between px-6 z-50">
         <div class="flex items-center gap-2">
-            <i data-lucide="flame" class="text-orange-500 fill-orange-500 w-6 h-6"></i>
-            <h1 class="font-black italic tracking-tighter text-xl text-orange-600">SQUADSTREAK</h1>
+            <i data-lucide="flame" class="text-primary fill-primary w-6 h-6"></i>
+            <h1 class="font-black italic tracking-tighter text-xl text-primary">SQUADSTREAK</h1>
         </div>
-        <div id="header-streak" class="hidden flex items-center gap-1 bg-orange-500 text-white px-3 py-1 rounded-full font-bold text-sm">
-            <i data-lucide="flame" class="w-4 h-4 fill-white"></i>
-            <span id="streak-val">0</span>
+        <div class="flex gap-2">
+            <div id="freeze-pill" class="flex items-center gap-1 bg-blue-500 text-white px-3 py-1 rounded-full font-bold text-xs shadow-sm transition-all duration-300">
+                <i data-lucide="snowflake" class="w-3 h-3"></i>
+                <span id="freeze-count">3</span>
+            </div>
+            <div id="header-streak" class="hidden flex items-center gap-1 bg-primary text-white px-3 py-1 rounded-full font-bold text-xs shadow-sm">
+                <i data-lucide="flame" class="w-3 h-3 fill-white"></i>
+                <span id="streak-val">0</span>
+            </div>
         </div>
     </header>
 
-    <!-- App Content -->
-    <main id="app-view" class="pt-24 pb-32 px-6 max-w-md mx-auto min-h-screen">
-        <div class="flex flex-col items-center justify-center h-[60vh]">
-            <i data-lucide="flame" class="text-orange-500 w-16 h-16 loading-flame fill-orange-500"></i>
-            <p class="mt-6 font-black text-orange-500 animate-pulse tracking-widest text-sm">CONNECTING TO DATABASE...</p>
-        </div>
+    <!-- Main View -->
+    <main id="app-view" class="pt-24 pb-48 px-6 max-w-md mx-auto min-h-screen">
+        <!-- Views Injected Here -->
     </main>
 
-    <!-- Nav Bar -->
+    <!-- Navigation -->
     <nav class="fixed bottom-0 left-0 right-0 bg-white border-t-4 border-black px-6 pt-4 pb-8 flex justify-around items-center z-50 safe-bottom">
-        <button onclick="setView('tasks')" id="nav-tasks" class="text-orange-500 transition-colors">
-            <i data-lucide="check-square" class="w-7 h-7"></i>
-        </button>
-        <button onclick="setView('squad')" id="nav-squad" class="text-gray-300 transition-colors">
-            <i data-lucide="users" class="w-7 h-7"></i>
-        </button>
-        <button onclick="setView('settings')" id="nav-settings" class="text-gray-300 transition-colors">
-            <i data-lucide="settings" class="w-7 h-7"></i>
-        </button>
+        <button onclick="setView('tasks')" id="nav-tasks" class="text-primary"><i data-lucide="check-square"></i></button>
+        <button onclick="setView('squad')" id="nav-squad" class="text-gray-300"><i data-lucide="users"></i></button>
+        <button onclick="setView('settings')" id="nav-settings" class="text-gray-300"><i data-lucide="settings"></i></button>
     </nav>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, onSnapshot, addDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, onSnapshot, addDoc, deleteDoc, increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAWX09fmqTAdACQYIm7_swND4dWzwcwwac",
@@ -88,251 +108,276 @@
         const appId = "squadstreak-bb7b9";
 
         let user = null;
+        let userData = { freezes: 3 };
         let tasks = [];
         let group = null;
         let activeView = 'tasks';
+        
+        let selectedDays = [0, 1, 2, 3, 4, 5, 6]; 
 
-        // Initialize Authentication
         onAuthStateChanged(auth, async (u) => {
             if (u) {
                 user = u;
-                await initUserData();
-                startSync();
+                await initUser();
+                syncData();
             } else {
-                try {
-                    await signInAnonymously(auth);
-                } catch (e) {
-                    console.error("Auth failed:", e);
-                }
+                await signInAnonymously(auth);
             }
         });
 
-        async function initUserData() {
-            // Updated Path to Rule 1: /artifacts/{appId}/users/{userId}/{collectionName}
+        async function initUser() {
             const userRef = doc(db, "artifacts", appId, "users", user.uid, "profile", "data");
             const snap = await getDoc(userRef);
             if (!snap.exists()) {
                 await setDoc(userRef, { 
-                    name: "Player_" + Math.floor(Math.random() * 9000),
-                    groupId: null,
-                    joinedAt: new Date().toISOString()
+                    name: "Player", 
+                    groupId: null, 
+                    freezes: 3, 
+                    vibe: 'orange' 
                 });
             }
         }
 
-        function startSync() {
-            // Updated Path to Rule 1: profile data
-            const userRef = doc(db, "artifacts", appId, "users", user.uid, "profile", "data");
-            onSnapshot(userRef, (snap) => {
-                const data = snap.data();
-                if (data?.groupId) syncGroup(data.groupId);
-                render();
-            }, (err) => console.error("Profile Sync Error:", err));
+        function syncData() {
+            onSnapshot(doc(db, "artifacts", appId, "users", user.uid, "profile", "data"), (snap) => {
+                userData = snap.data();
+                applyVibe(userData.vibe);
+                
+                const freezeDisplay = document.getElementById('freeze-count');
+                const freezePill = document.getElementById('freeze-pill');
+                
+                // Ensure UI reflects the data correctly
+                freezeDisplay.innerText = userData.freezes;
+                
+                if (userData.freezes === 0) {
+                    freezePill.className = "flex items-center gap-1 bg-gray-400 text-white px-3 py-1 rounded-full font-bold text-xs shadow-sm";
+                } else {
+                    freezePill.className = "flex items-center gap-1 bg-blue-500 text-white px-3 py-1 rounded-full font-bold text-xs shadow-sm";
+                }
 
-            // Updated Path to Rule 1: tasks collection
-            const tasksCol = collection(db, "artifacts", appId, "users", user.uid, "tasks");
-            onSnapshot(tasksCol, (snap) => {
+                if (userData.groupId) syncGroup(userData.groupId);
+                render();
+            });
+
+            onSnapshot(collection(db, "artifacts", appId, "users", user.uid, "tasks"), (snap) => {
                 tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 render();
-            }, (err) => console.error("Tasks Sync Error:", err));
+            });
         }
 
         function syncGroup(gid) {
-            // Updated Path to Rule 1: /artifacts/{appId}/public/data/{collectionName}
-            const groupRef = doc(db, "artifacts", appId, "public", "data", "groups", gid);
-            onSnapshot(groupRef, (snap) => {
-                if (snap.exists()) {
-                    group = { id: snap.id, ...snap.data() };
-                    document.getElementById('header-streak').classList.remove('hidden');
-                    document.getElementById('streak-val').innerText = group.streak || 0;
-                }
+            onSnapshot(doc(db, "artifacts", appId, "public", "data", "groups", gid), (snap) => {
+                group = { id: snap.id, ...snap.data() };
+                document.getElementById('header-streak').classList.remove('hidden');
+                document.getElementById('streak-val').innerText = group.streak || 0;
                 render();
-            }, (err) => console.error("Group Sync Error:", err));
+            });
         }
 
-        window.setView = (v) => {
-            activeView = v;
+        function applyVibe(vibe) {
+            const root = document.documentElement;
+            const colors = {
+                orange: { p: '#f97316', l: '#ffedd5' },
+                purple: { p: '#a855f7', l: '#f3e8ff' },
+                green: { p: '#22c55e', l: '#f0fdf4' },
+                brown: { p: '#78350f', l: '#fef3c7' }
+            };
+            const c = colors[vibe] || colors.orange;
+            root.style.setProperty('--primary', c.p);
+            root.style.setProperty('--primary-light', c.l);
+        }
+
+        function isTaskVisibleToday(t) {
+            const today = new Date().getDay();
+            if (t.days && Array.isArray(t.days)) {
+                return t.days.includes(today);
+            }
+            return true;
+        }
+
+        window.toggleDaySelection = (dayIndex) => {
+            if (selectedDays.includes(dayIndex)) {
+                if (selectedDays.length > 1) {
+                    selectedDays = selectedDays.filter(d => d !== dayIndex);
+                }
+            } else {
+                selectedDays.push(dayIndex);
+            }
             render();
         };
 
+        window.setVibe = async (v) => {
+            await updateDoc(doc(db, "artifacts", appId, "users", user.uid, "profile", "data"), { vibe: v });
+        };
+
+        window.setView = (v) => { activeView = v; render(); };
+
         window.addTask = async () => {
             const input = document.getElementById('task-in');
-            const title = input.value.trim();
-            if (!title || !user) return;
+            if (!input.value.trim()) return;
             
-            try {
-                await addDoc(collection(db, "artifacts", appId, "users", user.uid, "tasks"), {
-                    title: title,
-                    done: false,
-                    timestamp: Date.now()
-                });
-                input.value = "";
-            } catch (e) {
-                alert("Error saving task: " + e.message);
-            }
-        };
-
-        window.toggleTask = async (id, currentStatus) => {
-            if (!user) return;
-            await updateDoc(doc(db, "artifacts", appId, "users", user.uid, "tasks", id), {
-                done: !currentStatus
+            await addDoc(collection(db, "artifacts", appId, "users", user.uid, "tasks"), {
+                title: input.value.trim(),
+                done: false,
+                days: [...selectedDays],
+                createdAt: new Date().toISOString()
             });
+            input.value = "";
+            selectedDays = [0, 1, 2, 3, 4, 5, 6];
+            render();
         };
 
-        window.deleteTask = async (id) => {
-            if (!user) return;
+        window.toggleTask = async (id, status) => {
+            await updateDoc(doc(db, "artifacts", appId, "users", user.uid, "tasks", id), { done: !status });
+        };
+
+        window.deleteHabit = async (id) => {
             await deleteDoc(doc(db, "artifacts", appId, "users", user.uid, "tasks", id));
         };
 
-        window.createSquad = async () => {
-            const name = prompt("Name your squad:");
-            if (!name || !user) return;
-            try {
-                const groupRef = await addDoc(collection(db, "artifacts", appId, "public", "data", "groups"), {
-                    name: name,
-                    streak: 0,
-                    createdBy: user.uid
+        window.useFreeze = async () => {
+            if (userData.freezes <= 0) {
+                alert("OUT OF FREEZES: You don't have any freezes left to save the streak!");
+                return;
+            }
+            
+            if (confirm(`Use 1 Freeze? You have ${userData.freezes} left.`)) {
+                await updateDoc(doc(db, "artifacts", appId, "users", user.uid, "profile", "data"), { 
+                    freezes: increment(-1) 
                 });
-                await updateDoc(doc(db, "artifacts", appId, "users", user.uid, "profile", "data"), { groupId: groupRef.id });
-            } catch (e) {
-                alert("Could not create squad: " + e.message);
             }
         };
 
-        window.joinSquad = async () => {
-            const id = prompt("Paste your friend's Squad ID:");
-            if (!id || !user) return;
-            try {
-                const snap = await getDoc(doc(db, "artifacts", appId, "public", "data", "groups", id));
-                if (snap.exists()) {
-                    await updateDoc(doc(db, "artifacts", appId, "users", user.uid, "profile", "data"), { groupId: id });
-                } else {
-                    alert("Squad ID not found.");
-                }
-            } catch (e) {
-                alert("Error joining: " + e.message);
-            }
-        };
+        const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-        window.logout = async () => {
-            try {
-                await signOut(auth);
-                location.reload();
-            } catch (e) {
-                console.error("Logout failed:", e);
-            }
-        };
-
-        function render() {
+        window.render = () => {
             const container = document.getElementById('app-view');
             if (!container) return;
-            
-            // Nav Highlighting
-            const navs = ['tasks', 'squad', 'settings'];
-            navs.forEach(i => {
-                const el = document.getElementById('nav-' + i);
-                if (el) {
-                    if (activeView === i) {
-                        el.classList.replace('text-gray-300', 'text-orange-500');
-                    } else {
-                        el.classList.replace('text-orange-500', 'text-gray-300');
-                    }
-                }
+
+            ['tasks', 'squad', 'settings'].forEach(i => {
+                const navBtn = document.getElementById('nav-'+i);
+                if (navBtn) navBtn.style.color = (activeView === i) ? 'var(--primary)' : '#d1d5db';
             });
 
-            if (!user) return;
-
             if (activeView === 'tasks') {
+                const visibleTasks = tasks.filter(t => isTaskVisibleToday(t));
+                const hiddenTasksCount = tasks.length - visibleTasks.length;
+
                 container.innerHTML = `
-                    <div class="animate-in fade-in duration-500">
-                        <h2 class="text-4xl font-black italic mb-8 tracking-tighter">HABITS</h2>
-                        <div class="space-y-4 mb-10">
-                            ${tasks.length === 0 ? `
-                                <div class="py-12 text-center">
-                                    <p class="text-gray-300 font-bold uppercase tracking-widest text-xs">No tasks yet. Add one below!</p>
-                                </div>
-                            ` : ''}
-                            ${tasks.map(t => `
-                                <div class="neo-card p-5 rounded-3xl flex items-center justify-between ${t.done ? 'bg-orange-50 border-orange-500' : 'bg-white'}">
-                                    <div onclick="toggleTask('${t.id}', ${t.done})" class="flex items-center gap-4 flex-1 cursor-pointer">
-                                        <i data-lucide="${t.done ? 'check-circle' : 'circle'}" class="${t.done ? 'text-orange-500' : 'text-black'}"></i>
-                                        <span class="font-black text-lg ${t.done ? 'line-through opacity-30 text-orange-900' : 'text-black'}">${t.title.toUpperCase()}</span>
+                    <div class="flex justify-between items-end mb-6">
+                        <h2 class="text-4xl font-black italic tracking-tighter">HABITS</h2>
+                        <p class="text-[10px] font-bold text-gray-400 uppercase pb-1">${new Date().toLocaleDateString('en-US', {weekday: 'long'})}</p>
+                    </div>
+                    
+                    <div class="space-y-4 mb-8">
+                        ${visibleTasks.length === 0 ? `
+                            <div class="py-12 text-center border-2 border-dashed border-gray-100 rounded-3xl">
+                                <p class="text-gray-300 font-bold uppercase tracking-widest text-xs">Clear for today!</p>
+                            </div>
+                        ` : ''}
+                        ${visibleTasks.map(t => `
+                            <div class="neo-card p-5 rounded-3xl flex items-center justify-between ${t.done ? 'bg-primary-light border-primary' : 'bg-white'}">
+                                <div onclick="toggleTask('${t.id}', ${t.done})" class="flex items-center gap-4 cursor-pointer flex-1">
+                                    <i data-lucide="${t.done ? 'check-circle' : 'circle'}" class="${t.done ? 'text-primary' : ''}"></i>
+                                    <div>
+                                        <p class="font-black ${t.done ? 'line-through opacity-30 text-gray-500' : ''}">${t.title.toUpperCase()}</p>
+                                        <p class="text-[9px] font-bold opacity-50 uppercase tracking-tighter">
+                                            ${t.days && t.days.length === 7 ? 'DAILY' : t.days ? t.days.map(d => dayLabels[d]).join(' ') : 'CUSTOM'}
+                                        </p>
                                     </div>
-                                    <button onclick="deleteTask('${t.id}')" class="text-gray-200 hover:text-red-500 transition-colors p-1">
-                                        <i data-lucide="x" class="w-5 h-5"></i>
-                                    </button>
                                 </div>
-                            `).join('')}
-                        </div>
-                        
-                        <div class="bg-orange-500 p-6 rounded-[2.5rem] orange-glow text-white">
-                            <h3 class="text-[10px] font-black uppercase tracking-widest mb-3 opacity-70">Quick Add</h3>
+                                <button onclick="deleteHabit('${t.id}')" class="text-gray-200 hover:text-red-400 p-2"><i data-lucide="x" class="w-4 h-4"></i></button>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    ${hiddenTasksCount > 0 ? `
+                        <p class="text-center text-[9px] font-bold text-gray-300 uppercase tracking-widest mb-8">+ ${hiddenTasksCount} habits hidden for today</p>
+                    ` : ''}
+
+                    <div class="fixed bottom-24 left-6 right-6 max-w-md mx-auto z-40">
+                        <div class="bg-primary p-5 rounded-[2.5rem] text-white shadow-2xl">
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3 opacity-80 text-center">Repeat on days</p>
+                            <div class="flex justify-between mb-4 px-1">
+                                ${dayLabels.map((label, idx) => `
+                                    <button onclick="toggleDaySelection(${idx})" class="day-chip w-8 h-8 rounded-full font-black text-[10px] flex items-center justify-center ${selectedDays.includes(idx) ? 'active' : 'bg-black/10 text-white/60'}">
+                                        ${label}
+                                    </button>
+                                `).join('')}
+                            </div>
                             <div class="flex gap-2">
-                                <input id="task-in" type="text" placeholder="WAKE UP 6AM..." class="flex-1 bg-white/20 rounded-2xl px-5 py-4 outline-none text-white font-black placeholder:text-white/40 border-2 border-transparent focus:border-white/50 transition-all">
-                                <button onclick="addTask()" class="bg-white text-orange-500 p-4 rounded-2xl active:scale-90 transition-transform">
-                                    <i data-lucide="plus" class="w-6 h-6 stroke-[3px]"></i>
-                                </button>
+                                <input id="task-in" type="text" placeholder="NEW HABIT..." class="flex-1 bg-white/20 rounded-2xl px-4 py-4 outline-none text-white font-black placeholder:text-white/50 border-2 border-transparent focus:border-white/40">
+                                <button onclick="addTask()" class="bg-white text-primary p-4 rounded-2xl active:scale-90 transition-transform shadow-md"><i data-lucide="plus" class="stroke-[3px]"></i></button>
                             </div>
                         </div>
                     </div>
                 `;
             } else if (activeView === 'squad') {
-                if (!group) {
-                    container.innerHTML = `
-                        <div class="text-center pt-10 animate-in slide-in-from-bottom-4">
-                            <i data-lucide="users" class="w-20 h-20 mx-auto text-orange-100 mb-6 stroke-[1px]"></i>
-                            <h2 class="text-3xl font-black italic mb-2 tracking-tighter">SQUAD UP</h2>
-                            <p class="text-gray-400 font-bold text-sm mb-10 px-10 leading-relaxed">Streaks are 3x more likely to stick when done with a squad.</p>
-                            <div class="space-y-4">
-                                <button onclick="createSquad()" class="w-full bg-orange-500 text-white py-5 rounded-3xl font-black text-lg orange-glow">CREATE SQUAD</button>
-                                <button onclick="joinSquad()" class="w-full border-4 border-black py-5 rounded-3xl font-black text-lg">JOIN WITH ID</button>
+                const outOfFreezes = userData.freezes <= 0;
+                container.innerHTML = `
+                    <div class="text-center pt-10">
+                        ${!group ? `
+                            <i data-lucide="users" class="w-20 h-20 mx-auto text-primary opacity-20 mb-6"></i>
+                            <h2 class="text-2xl font-black mb-6 tracking-tight">READY TO SYNC?</h2>
+                            <button onclick="window.createSquad()" class="w-full bg-primary text-white py-5 rounded-3xl font-black mb-4 shadow-lg">CREATE SQUAD</button>
+                            <button onclick="window.joinSquad()" class="w-full border-4 border-black py-5 rounded-3xl font-black active:bg-gray-50">JOIN WITH ID</button>
+                        ` : `
+                            <div class="bg-black p-10 rounded-[3rem] text-white mb-6 relative overflow-hidden">
+                                <h2 class="text-4xl font-black italic mb-2 relative z-10">${group.name.toUpperCase()}</h2>
+                                <div class="flex items-center justify-center gap-2 text-primary relative z-10">
+                                    <i data-lucide="flame" fill="currentColor"></i>
+                                    <span class="text-2xl font-black">${group.streak} DAY STREAK</span>
+                                </div>
+                                <i data-lucide="flame" class="absolute -bottom-10 -right-10 w-40 h-40 text-white/5 rotate-12"></i>
                             </div>
-                        </div>
-                    `;
-                } else {
-                    container.innerHTML = `
-                        <div class="animate-in fade-in">
-                            <div class="bg-black p-10 rounded-[3rem] text-white orange-glow mb-8 relative overflow-hidden">
-                                <div class="relative z-10">
-                                    <h2 class="text-5xl font-black italic mb-2 tracking-tighter">${group.name.toUpperCase()}</h2>
-                                    <div class="flex items-center gap-2 text-orange-500">
-                                        <i data-lucide="flame" fill="currentColor" class="w-6 h-6"></i>
-                                        <span class="text-3xl font-black">${group.streak} DAY STREAK</span>
+
+                            <button onclick="useFreeze()" class="w-full ${outOfFreezes ? 'freeze-empty' : 'freeze-gradient'} p-6 rounded-3xl mb-8 flex items-center justify-between shadow-lg active:scale-[0.98] transition-all">
+                                <div class="flex items-center gap-4 text-left">
+                                    <div class="bg-white/20 p-3 rounded-2xl"><i data-lucide="snowflake" class="w-6 h-6 ${outOfFreezes ? 'text-gray-300' : 'text-white'}"></i></div>
+                                    <div>
+                                        <p class="font-black text-lg uppercase ${outOfFreezes ? 'text-gray-400' : 'text-white'}">${outOfFreezes ? 'OUT OF FREEZES' : 'USE FREEZE'}</p>
+                                        <p class="text-[10px] font-bold opacity-80 uppercase ${outOfFreezes ? 'text-gray-400' : 'text-white'}">Save the squad today</p>
                                     </div>
                                 </div>
-                                <i data-lucide="flame" class="absolute -right-10 -bottom-10 w-48 h-48 text-white/5 rotate-12 stroke-[1px]"></i>
+                                <span class="text-2xl font-black ${outOfFreezes ? 'text-gray-400' : 'text-white'}">${userData.freezes}</span>
+                            </button>
+
+                            <div class="bg-gray-50 p-6 rounded-3xl border-2 border-dashed border-gray-200">
+                                <p class="text-[10px] font-black text-gray-400 mb-3 uppercase tracking-widest">Squad ID</p>
+                                <div class="bg-white p-3 rounded-xl border border-gray-200 font-mono font-bold text-primary select-all text-xs">${group.id}</div>
                             </div>
-                            
-                            <div class="bg-gray-50 p-8 rounded-[2.5rem] text-center border-2 border-dashed border-gray-200">
-                                <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Share your Squad ID</p>
-                                <div class="bg-white p-4 rounded-2xl border-2 border-black font-mono font-black text-orange-600 text-lg select-all cursor-pointer">
-                                    ${group.id}
-                                </div>
-                                <p class="mt-4 text-[10px] font-bold text-gray-300">Invite 2 friends to keep the flame alive!</p>
-                            </div>
-                        </div>
-                    `;
-                }
+                        `}
+                    </div>
+                `;
             } else if (activeView === 'settings') {
                 container.innerHTML = `
-                    <div class="animate-in fade-in">
-                        <h2 class="text-4xl font-black italic mb-8 tracking-tighter">PROFILE</h2>
-                        <div class="space-y-4">
-                            <div class="bg-gray-50 p-6 rounded-3xl border-2 border-black/5">
-                                <p class="text-[10px] font-black text-gray-400 uppercase mb-1">Authenticated As</p>
-                                <p class="font-black text-lg truncate">${user.uid}</p>
-                            </div>
-                            <button onclick="logout()" class="w-full border-4 border-black text-black py-5 rounded-3xl font-black text-lg flex items-center justify-center gap-3">
-                                <i data-lucide="log-out"></i> LOG OUT
+                    <h2 class="text-3xl font-black italic mb-8 tracking-tighter">VIBE CHECK</h2>
+                    <div class="grid grid-cols-2 gap-4 mb-10">
+                        ${['orange', 'purple', 'green', 'brown'].map(v => `
+                            <button onclick="setVibe('${v}')" class="neo-card p-6 rounded-3xl font-black uppercase flex flex-col items-center gap-3 transition-all ${userData.vibe === v ? 'border-primary ring-4 ring-primary-light bg-primary-light/30' : 'bg-white'}">
+                                <div class="w-10 h-10 rounded-2xl shadow-inner border-2 border-black/10" style="background:${v === 'orange'?'#f97316':v==='purple'?'#a855f7':v==='green'?'#22c55e':'#78350f'}"></div>
+                                <span class="text-xs tracking-widest">${v}</span>
                             </button>
-                        </div>
+                        `).join('')}
                     </div>
+                    <button onclick="auth.signOut().then(()=>location.reload())" class="w-full border-4 border-red-500 text-red-500 py-5 rounded-3xl font-black uppercase tracking-widest text-sm active:bg-red-50">Log Out</button>
                 `;
             }
             lucide.createIcons();
-        }
+        };
 
-        lucide.createIcons();
+        window.createSquad = async () => {
+            const name = prompt("Squad Name:");
+            if (!name) return;
+            const gRef = await addDoc(collection(db, "artifacts", appId, "public", "data", "groups"), { name, streak: 0 });
+            await updateDoc(doc(db, "artifacts", appId, "users", user.uid, "profile", "data"), { groupId: gRef.id });
+        };
+
+        window.joinSquad = async () => {
+            const id = prompt("Squad ID:");
+            if (!id) return;
+            await updateDoc(doc(db, "artifacts", appId, "users", user.uid, "profile", "data"), { groupId: id });
+        };
     </script>
 </body>
 </html>
