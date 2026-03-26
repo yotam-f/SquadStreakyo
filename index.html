@@ -20,7 +20,6 @@
 </head>
 <body class="bg-white">
 
-    <!-- Auth Overlay -->
     <div id="auth-overlay" class="fixed inset-0 bg-white z-[100] flex flex-col items-center justify-center p-8 text-center">
         <i data-lucide="flame" class="w-20 h-20 text-orange-500 fill-orange-500 mb-6 animate-pulse"></i>
         <h1 class="text-4xl font-black italic tracking-tighter mb-2 uppercase text-black">SQUADSTREAK</h1>
@@ -33,7 +32,6 @@
         <div id="auth-loading" class="text-xs font-black text-orange-300 uppercase tracking-widest mt-4">Syncing...</div>
     </div>
 
-    <!-- Header -->
     <header id="app-header" class="fixed top-0 left-0 right-0 h-16 bg-white border-b-2 border-orange-100 flex items-center justify-between px-6 z-50 hidden">
         <div class="flex items-center gap-2">
             <div class="w-8 h-8 rounded-full border-2 border-black overflow-hidden bg-gray-100">
@@ -49,15 +47,16 @@
         </div>
     </header>
 
-    <!-- Main View -->
     <main id="app-view" class="pt-24 pb-72 px-6 max-w-md mx-auto min-h-screen hidden"></main>
 
-    <!-- Navigation -->
     <nav id="app-nav" class="fixed bottom-0 left-0 right-0 bg-white border-t-4 border-black px-6 pt-4 pb-8 flex justify-around items-center z-50 safe-bottom hidden">
         <button onclick="setView('tasks')" id="nav-tasks" class="text-orange-500 transition-colors"><i data-lucide="check-square"></i></button>
         <button onclick="setView('squad')" id="nav-squad" class="text-gray-300 transition-colors"><i data-lucide="users"></i></button>
         <button onclick="setView('settings')" id="nav-settings" class="text-gray-300 transition-colors"><i data-lucide="settings"></i></button>
     </nav>
+
+    <!-- Custom Alert/Toast -->
+    <div id="custom-toast" class="fixed bottom-32 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] font-black uppercase px-6 py-3 rounded-full opacity-0 pointer-events-none transition-opacity duration-300 z-[60]">ID Copied!</div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -83,8 +82,8 @@
         let activeView = 'tasks', showOnlyToday = true, creatorExpanded = false;
         let selectedDays = [0,1,2,3,4,5,6];
         let listeners = [];
+        let streakLock = false;
 
-        // --- AUTH ---
         window.loginWithGoogle = () => signInWithPopup(auth, provider);
         window.logout = () => signOut(auth).then(() => window.location.reload());
 
@@ -110,16 +109,14 @@
             const ref = doc(db, "artifacts", dbId, "users", user.uid);
             const snap = await getDoc(ref);
             if (!snap.exists()) {
-                await setDoc(ref, { name: user.displayName, email: user.email, groupId: null, freezes: 3 });
+                await setDoc(ref, { name: user.displayName, email: user.email, groupId: null });
             }
         }
 
-        // --- SYNCING ---
         function startSync() {
             listeners.forEach(unsub => unsub());
             listeners = [];
 
-            // User Data & Group Link
             const userUnsub = onSnapshot(doc(db, "artifacts", dbId, "users", user.uid), (snap) => {
                 userData = snap.data() || {};
                 if (userData.groupId) syncGroup(userData.groupId);
@@ -127,7 +124,6 @@
             });
             listeners.push(userUnsub);
 
-            // Personal Tasks
             const tasksUnsub = onSnapshot(collection(db, "artifacts", dbId, "users", user.uid, "tasks"), (snap) => {
                 tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 render();
@@ -158,20 +154,20 @@
             listeners.push(membersUnsub);
         }
 
-        // --- THE FIX: IDEMPOTENT STREAK LOGIC ---
-        // Uses a sub-collection "completions" to ensure a day is only ever counted once.
         async function calculateStreakIdempotent() {
-            if (!group || members.length === 0) return;
+            if (!group || members.length === 0 || streakLock) return;
 
             const today = new Date().getDay();
-            const todayKey = new Date().toISOString().split('T')[0];
+            const todayKey = new Date().toLocaleDateString('en-CA'); 
             
             let allSquadDone = true;
             let squadHasTasksToday = false;
 
+            // Check every member in the squad
             for (const m of members) {
                 const mTasks = memberTasks[m.id] || [];
                 const todaysTasks = mTasks.filter(t => t.days?.includes(today));
+                
                 if (todaysTasks.length > 0) {
                     squadHasTasksToday = true;
                     if (!todaysTasks.every(t => t.done)) {
@@ -181,8 +177,11 @@
                 }
             }
 
+            // If no one in the squad has any tasks scheduled for today, 
+            // the streak shouldn't tick up or down automatically.
             if (!squadHasTasksToday) return;
 
+            streakLock = true;
             const completionRef = doc(db, "artifacts", dbId, "public", "data", "groups", group.id, "completions", todayKey);
             const groupRef = doc(db, "artifacts", dbId, "public", "data", "groups", group.id);
 
@@ -190,27 +189,40 @@
                 await runTransaction(db, async (transaction) => {
                     const compDoc = await transaction.get(completionRef);
                     const groupDoc = await transaction.get(groupRef);
-                    
                     if (!groupDoc.exists()) return;
-                    const currentStreak = groupDoc.data().streak || 0;
 
-                    if (allSquadDone && !compDoc.exists()) {
-                        // Mark as done for today and increment
-                        transaction.set(completionRef, { completedAt: new Date().toISOString(), status: 'done' });
-                        transaction.update(groupRef, { streak: currentStreak + 1 });
+                    const isDoneRecordExists = compDoc.exists();
+
+                    if (allSquadDone && !isDoneRecordExists) {
+                        transaction.set(completionRef, { status: 'done', timestamp: Date.now() });
+                        transaction.update(groupRef, { streak: increment(1) });
                     } 
-                    else if (!allSquadDone && compDoc.exists()) {
-                        // Someone unchecked a task: Remove today's credit and decrement
+                    else if (!allSquadDone && isDoneRecordExists) {
                         transaction.delete(completionRef);
-                        transaction.update(groupRef, { streak: Math.max(0, currentStreak - 1) });
+                        transaction.update(groupRef, { streak: increment(-1) });
                     }
                 });
             } catch (e) {
-                // Silently handle contention; the next update will retry or fix it
+                console.error("Streak sync failed:", e);
+            } finally {
+                setTimeout(() => { streakLock = false; }, 800);
             }
         }
 
-        // --- UI ACTIONS ---
+        window.copyId = () => {
+            if (!group?.id) return;
+            const el = document.createElement('textarea');
+            el.value = group.id;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            
+            const toast = document.getElementById('custom-toast');
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+        };
+
         window.setView = (v) => { activeView = v; render(); };
         window.toggleFocus = () => { showOnlyToday = !showOnlyToday; render(); };
         window.toggleCreator = () => { creatorExpanded = !creatorExpanded; render(); };
@@ -265,7 +277,6 @@
             await updateDoc(doc(db, "artifacts", dbId, "users", user.uid), { groupId: null });
         };
 
-        // --- RENDERER ---
         window.render = () => {
             const container = document.getElementById('app-view');
             const today = new Date().getDay();
@@ -286,6 +297,7 @@
                         </button>
                     </div>
                     <div class="space-y-3 mb-40">
+                        ${visible.length === 0 ? '<p class="text-center text-gray-300 font-bold py-10 uppercase text-xs">No habits found</p>' : ''}
                         ${visible.map(t => `
                             <div onclick="toggleTask('${t.id}', ${t.done})" class="neo-card p-5 rounded-[2rem] flex items-center gap-4 bg-white cursor-pointer ${t.done ? 'opacity-40' : ''}">
                                 <i data-lucide="${t.done ? 'check-circle' : 'circle'}" class="${t.done ? 'text-orange-500' : 'text-gray-300'}"></i>
@@ -340,7 +352,7 @@
                             const pct = total > 0 ? (done/total)*100 : (mt.length > 0 ? 0 : 100);
                             return `
                             <div class="bg-white border-2 border-gray-50 p-4 rounded-[2rem] flex items-center gap-4">
-                                <div class="w-10 h-10 rounded-xl ${pct === 100 ? 'bg-orange-500' : 'bg-gray-100'} flex items-center justify-center font-black text-white">
+                                <div class="w-10 h-10 rounded-xl ${pct === 100 ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-400'} flex items-center justify-center font-black">
                                     ${pct === 100 ? '<i data-lucide="check" class="w-5 h-5"></i>' : (m.name?.[0] || 'U').toUpperCase()}
                                 </div>
                                 <div class="flex-1">
@@ -355,8 +367,14 @@
                             </div>`;
                         }).join('')}
                     </div>
-                    <div class="mt-8 text-center opacity-30">
-                        <p class="text-[8px] font-black uppercase tracking-[0.2em]">ID: ${group.id}</p>
+                    <div class="mt-8 text-center bg-gray-50 py-4 rounded-3xl border-2 border-dashed border-gray-200">
+                        <p class="text-[8px] font-black uppercase tracking-[0.2em] mb-1 text-gray-400">Share Squad ID</p>
+                        <div class="flex items-center justify-center gap-3">
+                            <p class="text-[10px] font-black text-black select-all">${group.id}</p>
+                            <button onclick="copyId()" class="p-2 hover:bg-gray-200 rounded-lg transition-colors">
+                                <i data-lucide="copy" class="w-3 h-3 text-orange-500"></i>
+                            </button>
+                        </div>
                     </div>`;
             } else if (activeView === 'settings') {
                 container.innerHTML = `
