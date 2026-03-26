@@ -142,7 +142,6 @@
                 });
             } else {
                 const data = snap.data();
-                // Midnight Reset Check: If last active date is different than today, uncheck all tasks
                 if (data.lastDailyReset !== todayStr) {
                     const tasksRef = collection(db, "artifacts", dbId, "users", user.uid, "tasks");
                     const taskSnaps = await getDocs(tasksRef);
@@ -194,7 +193,7 @@
 
             unsubTasks = onSnapshot(collection(db, "artifacts", dbId, "users", user.uid, "tasks"), (snap) => {
                 tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                checkAndUpdateSquadStreak(); // Check whenever personal tasks change
+                checkAndUpdateSquadStreak();
                 render();
             });
         }
@@ -218,8 +217,8 @@
         }
 
         /**
-         * STREAK LOGIC
-         * We check if every member has completed all their tasks for TODAY.
+         * UPDATED STREAK LOGIC
+         * Adds guards to prevent "going crazy" with increments/decrements.
          */
         async function checkAndUpdateSquadStreak() {
             if (!group || members.length === 0) return;
@@ -228,14 +227,14 @@
             const todayStr = new Date().toISOString().split('T')[0];
 
             let allMembersDoneForToday = true;
+            let squadHasTasksToday = false;
             
-            // Check every member
             for (const m of members) {
                 const mTasks = memberTasks[m.id] || [];
                 const todayTasks = mTasks.filter(t => t.days?.includes(today));
                 
-                // If they have no tasks for today, they are technically "done"
                 if (todayTasks.length > 0) {
+                    squadHasTasksToday = true;
                     const allDone = todayTasks.every(t => t.done === true);
                     if (!allDone) {
                         allMembersDoneForToday = false;
@@ -244,20 +243,24 @@
                 }
             }
 
+            // If no one has tasks today, don't change anything
+            if (!squadHasTasksToday) return;
+
             const groupRef = doc(db, "artifacts", dbId, "public", "data", "groups", group.id);
             
-            // Logic: 
-            // 1. If everyone is done AND we haven't recorded today yet -> Streak++
-            // 2. If someone unchecks AND we had recorded today -> Streak--
+            // Increment Guard: Only if everyone is done AND today wasn't already marked as completed
             if (allMembersDoneForToday && group.lastCompletionDate !== todayStr) {
                 await updateDoc(groupRef, {
                     streak: increment(1),
                     lastCompletionDate: todayStr
                 });
-            } else if (!allMembersDoneForToday && group.lastCompletionDate === todayStr) {
+            } 
+            // Decrement Guard: Only if NOT everyone is done AND today WAS marked as completed
+            else if (!allMembersDoneForToday && group.lastCompletionDate === todayStr) {
+                const newStreak = Math.max(0, (group.streak || 1) - 1);
                 await updateDoc(groupRef, {
-                    streak: increment(-1),
-                    lastCompletionDate: null // Reset so they can earn it back today
+                    streak: newStreak,
+                    lastCompletionDate: "" // Clear so it can be earned again
                 });
             }
         }
@@ -324,7 +327,7 @@
         window.createSquad = async () => {
             const name = prompt("Squad Name:");
             if (!name) return;
-            const gRef = await addDoc(collection(db, "artifacts", dbId, "public", "data", "groups"), { name, streak: 0, lastCompletionDate: null });
+            const gRef = await addDoc(collection(db, "artifacts", dbId, "public", "data", "groups"), { name, streak: 0, lastCompletionDate: "" });
             await updateDoc(doc(db, "artifacts", dbId, "users", user.uid), { groupId: gRef.id });
         };
 
@@ -417,7 +420,6 @@
                         <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4">Squad Progress (Today)</h3>
                         ${members.map(m => {
                             const mTasks = memberTasks[m.id] || [];
-                            // PROGRESS LOGIC: Only count tasks assigned for TODAY
                             const todayTasks = mTasks.filter(t => t.days?.includes(today));
                             const doneToday = todayTasks.filter(t => t.done).length;
                             const totalToday = todayTasks.length;
