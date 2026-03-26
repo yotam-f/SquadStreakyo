@@ -26,8 +26,6 @@
         #auth-overlay:not(.hidden) { display: flex; }
         .day-btn { border: 1px solid rgba(255,255,255,0.3); }
         .day-btn.active { background: white; color: #f97316; border-color: white; }
-        
-        /* New Red Exit State */
         .exit-active { background-color: #ef4444 !important; color: white !important; border-color: transparent !important; }
     </style>
 </head>
@@ -81,7 +79,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, onSnapshot, addDoc, deleteDoc, query, where, increment, writeBatch, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, onSnapshot, addDoc, deleteDoc, query, where, increment, writeBatch, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAWX09fmqTAdACQYIm7_swND4dWzwcwwac",
@@ -104,9 +102,7 @@
         let selectedDays = [0,1,2,3,4,5,6]; 
 
         window.loginWithGoogle = () => {
-            signInWithPopup(auth, provider).catch(e => {
-                alert(e.message);
-            });
+            signInWithPopup(auth, provider).catch(e => alert(e.message));
         };
 
         onAuthStateChanged(auth, async (u) => {
@@ -132,6 +128,7 @@
             const ref = doc(db, "artifacts", dbId, "users", user.uid);
             const snap = await getDoc(ref);
             const now = new Date();
+            const todayStr = now.toISOString().split('T')[0];
             
             if (!snap.exists()) {
                 await setDoc(ref, { 
@@ -141,11 +138,23 @@
                     freezes: 3, 
                     joinedDate: now.toISOString(),
                     lastActive: now.toISOString(),
-                    lastFreezeGrant: now.toISOString()
+                    lastDailyReset: todayStr 
                 });
             } else {
                 const data = snap.data();
-                await updateDoc(ref, { lastActive: now.toISOString() });
+                // Midnight Reset Check: If last active date is different than today, uncheck all tasks
+                if (data.lastDailyReset !== todayStr) {
+                    const tasksRef = collection(db, "artifacts", dbId, "users", user.uid, "tasks");
+                    const taskSnaps = await getDocs(tasksRef);
+                    const batch = writeBatch(db);
+                    taskSnaps.forEach(tDoc => {
+                        batch.update(tDoc.ref, { done: false });
+                    });
+                    await batch.commit();
+                    await updateDoc(ref, { lastDailyReset: todayStr, lastActive: now.toISOString() });
+                } else {
+                    await updateDoc(ref, { lastActive: now.toISOString() });
+                }
             }
         }
 
@@ -155,7 +164,6 @@
 
             unsubGroup = onSnapshot(doc(db, "artifacts", dbId, "users", user.uid), (snap) => {
                 userData = snap.data() || {};
-                
                 const freezeVal = document.getElementById('freeze-val');
                 if (freezeVal) freezeVal.innerText = userData.freezes || 0;
 
@@ -186,6 +194,7 @@
 
             unsubTasks = onSnapshot(collection(db, "artifacts", dbId, "users", user.uid, "tasks"), (snap) => {
                 tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                checkAndUpdateSquadStreak(); // Check whenever personal tasks change
                 render();
             });
         }
@@ -199,7 +208,8 @@
                 members = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 members.forEach(m => {
                     const u = onSnapshot(collection(db, "artifacts", dbId, "users", m.id, "tasks"), (tSnap) => {
-                        memberTasks[m.id] = tSnap.docs.map(td => td.data());
+                        memberTasks[m.id] = tSnap.docs.map(td => ({ id: td.id, ...td.data() }));
+                        checkAndUpdateSquadStreak();
                         render();
                     });
                     memberUnsubs.push(u);
@@ -207,84 +217,75 @@
             });
         }
 
+        /**
+         * STREAK LOGIC
+         * We check if every member has completed all their tasks for TODAY.
+         */
+        async function checkAndUpdateSquadStreak() {
+            if (!group || members.length === 0) return;
+            
+            const today = new Date().getDay();
+            const todayStr = new Date().toISOString().split('T')[0];
+
+            let allMembersDoneForToday = true;
+            
+            // Check every member
+            for (const m of members) {
+                const mTasks = memberTasks[m.id] || [];
+                const todayTasks = mTasks.filter(t => t.days?.includes(today));
+                
+                // If they have no tasks for today, they are technically "done"
+                if (todayTasks.length > 0) {
+                    const allDone = todayTasks.every(t => t.done === true);
+                    if (!allDone) {
+                        allMembersDoneForToday = false;
+                        break;
+                    }
+                }
+            }
+
+            const groupRef = doc(db, "artifacts", dbId, "public", "data", "groups", group.id);
+            
+            // Logic: 
+            // 1. If everyone is done AND we haven't recorded today yet -> Streak++
+            // 2. If someone unchecks AND we had recorded today -> Streak--
+            if (allMembersDoneForToday && group.lastCompletionDate !== todayStr) {
+                await updateDoc(groupRef, {
+                    streak: increment(1),
+                    lastCompletionDate: todayStr
+                });
+            } else if (!allMembersDoneForToday && group.lastCompletionDate === todayStr) {
+                await updateDoc(groupRef, {
+                    streak: increment(-1),
+                    lastCompletionDate: null // Reset so they can earn it back today
+                });
+            }
+        }
+
         window.setView = (v) => { activeView = v; render(); };
         window.toggleFocus = () => { showOnlyToday = !showOnlyToday; render(); };
         window.toggleCreator = () => { creatorExpanded = !creatorExpanded; render(); };
-        
         window.toggleDay = (day) => {
-            if (selectedDays.includes(day)) {
-                selectedDays = selectedDays.filter(d => d !== day);
-            } else {
-                selectedDays.push(day);
-            }
+            selectedDays = selectedDays.includes(day) ? selectedDays.filter(d => d !== day) : [...selectedDays, day];
             render();
         };
 
-        window.useFreeze = async () => {
-            if ((userData.freezes || 0) <= 0) return alert("No freezes left!");
-            if (!confirm("Use a freeze to protect your streak today?")) return;
-            
-            await updateDoc(doc(db, "artifacts", dbId, "users", user.uid), {
-                freezes: increment(-1)
-            });
-            alert("Streak Frozen! You're safe for today.");
-        };
-
-        window.leaveSquad = async (btn) => {
-            // Turn button red immediately
-            btn.classList.add('exit-active');
-            
-            if (!confirm("Are you sure you want to leave the squad? All shared tasks will be removed.")) {
-                btn.classList.remove('exit-active');
-                return;
-            }
-            
-            try {
-                // 1. Clear profile's group link
-                const userRef = doc(db, "artifacts", dbId, "users", user.uid);
-                await updateDoc(userRef, { groupId: null });
-                
-                // 2. Clear squad specific tasks from user's local subcollection
-                const tasksQuery = query(collection(db, "artifacts", dbId, "users", user.uid, "tasks"), where("isSquad", "==", true));
-                const taskSnaps = await getDocs(tasksQuery);
-                const batch = writeBatch(db);
-                taskSnaps.forEach(d => {
-                    batch.delete(d.ref);
-                });
-                await batch.commit();
-                
-                // 3. Clear listeners and state
-                if (unsubSpecificGroup) unsubSpecificGroup();
-                if (unsubMembers) unsubMembers();
-                memberUnsubs.forEach(u => u());
-                
-                group = null;
-                members = [];
-                memberTasks = {};
-                userData.groupId = null;
-                
-                render();
-                
-            } catch (err) {
-                console.error("Error leaving squad:", err);
-                alert("Failed to leave squad. Please try again.");
-                btn.classList.remove('exit-active');
-            }
+        window.toggleTask = async (tid, status) => { 
+            await updateDoc(doc(db, "artifacts", dbId, "users", user.uid, "tasks", tid), { done: !status }); 
         };
 
         window.addTask = async (isGroup = false) => {
             const id = isGroup ? 'group-task-in' : 'task-in';
             const input = document.getElementById(id);
             if (!input.value.trim()) return;
-            const title = isGroup ? `[SQUAD] ${input.value.trim()}` : input.value.trim();
-            
+            const title = input.value.trim();
             const taskDays = isGroup ? [0,1,2,3,4,5,6] : [...selectedDays];
             if (taskDays.length === 0) taskDays.push(new Date().getDay());
 
             try {
                 if (isGroup) {
                     const batchPromises = members.map(m => addDoc(collection(db, "artifacts", dbId, "users", m.id, "tasks"), { 
-                        title, done: false, isSquad: true, days: taskDays 
+                        title: `[SQUAD] ${title}`, done: false, isSquad: true, days: taskDays 
                     }));
                     await Promise.all(batchPromises);
                 } else {
@@ -292,27 +293,38 @@
                         title, done: false, days: taskDays 
                     });
                 }
-                input.value = ""; 
-                creatorExpanded = false; 
-                selectedDays = [0,1,2,3,4,5,6];
+                input.value = ""; creatorExpanded = false; selectedDays = [0,1,2,3,4,5,6];
                 render();
             } catch (err) { console.error(err); }
         };
 
-        window.toggleTask = async (tid, status) => { 
-            await updateDoc(doc(db, "artifacts", dbId, "users", user.uid, "tasks", tid), { done: !status }); 
-        };
-
         window.deleteTask = async (e, tid) => {
             e.stopPropagation();
-            if(!confirm("Delete this habit?")) return;
+            if(!confirm("Delete habit?")) return;
             await deleteDoc(doc(db, "artifacts", dbId, "users", user.uid, "tasks", tid));
+        };
+
+        window.leaveSquad = async (btn) => {
+            btn.classList.add('exit-active');
+            if (!confirm("Leave squad? Shared tasks will be deleted.")) {
+                btn.classList.remove('exit-active');
+                return;
+            }
+            try {
+                await updateDoc(doc(db, "artifacts", dbId, "users", user.uid), { groupId: null });
+                const qS = query(collection(db, "artifacts", dbId, "users", user.uid, "tasks"), where("isSquad", "==", true));
+                const snaps = await getDocs(qS);
+                const batch = writeBatch(db);
+                snaps.forEach(d => batch.delete(d.ref));
+                await batch.commit();
+                window.location.reload();
+            } catch (err) { btn.classList.remove('exit-active'); }
         };
 
         window.createSquad = async () => {
             const name = prompt("Squad Name:");
             if (!name) return;
-            const gRef = await addDoc(collection(db, "artifacts", dbId, "public", "data", "groups"), { name, streak: 0 });
+            const gRef = await addDoc(collection(db, "artifacts", dbId, "public", "data", "groups"), { name, streak: 0, lastCompletionDate: null });
             await updateDoc(doc(db, "artifacts", dbId, "users", user.uid), { groupId: gRef.id });
         };
 
@@ -322,11 +334,14 @@
             await updateDoc(doc(db, "artifacts", dbId, "users", user.uid), { groupId: id });
         };
 
-        window.logout = () => { signOut(auth).then(() => { window.location.reload(); }); };
+        window.logout = () => signOut(auth).then(() => window.location.reload());
 
         window.render = () => {
             const container = document.getElementById('app-view');
             if (!container) return;
+            const today = new Date().getDay();
+            const dayLabels = ['S','M','T','W','T','F','S'];
+
             const navItems = ['tasks', 'squad', 'settings'];
             navItems.forEach(v => {
                 const el = document.getElementById('nav-'+v);
@@ -334,57 +349,40 @@
             });
 
             if (activeView === 'tasks') {
-                const today = new Date().getDay();
                 const visible = showOnlyToday ? tasks.filter(t => t.days?.includes(today)) : tasks;
-                const dayLabels = ['S','M','T','W','T','F','S'];
-
                 container.innerHTML = `
                     <div class="flex justify-between items-center mb-8">
                         <h2 class="text-4xl font-black italic tracking-tighter uppercase">Habits</h2>
-                        <div class="flex gap-2">
-                            <button onclick="useFreeze()" class="flex items-center gap-1 px-3 py-2 rounded-xl text-[10px] font-black border-2 border-black bg-blue-500 text-white">
-                                <i data-lucide="snowflake" class="w-3 h-3"></i> FREEZE
-                            </button>
-                            <button onclick="toggleFocus()" class="px-3 py-2 rounded-xl text-[10px] font-black border-2 border-black ${showOnlyToday ? 'bg-black text-white':'bg-white'}">
-                                ${showOnlyToday ? 'TODAY ONLY' : 'SHOW ALL'}
-                            </button>
-                        </div>
+                        <button onclick="toggleFocus()" class="px-3 py-2 rounded-xl text-[10px] font-black border-2 border-black ${showOnlyToday ? 'bg-black text-white':'bg-white'}">
+                            ${showOnlyToday ? 'TODAY ONLY' : 'SHOW ALL'}
+                        </button>
                     </div>
                     <div class="space-y-4 mb-32">
-                        ${visible.length === 0 ? '<p class="text-gray-400 font-bold text-center py-10 uppercase text-xs">No habits found</p>' : ''}
+                        ${visible.length === 0 ? '<p class="text-gray-400 font-bold text-center py-10 uppercase text-xs">No habits for today</p>' : ''}
                         ${visible.map(t => `
-                            <div onclick="toggleTask('${t.id}', ${t.done})" class="neo-card p-5 rounded-3xl flex items-center gap-4 ${t.done ? 'bg-orange-50 opacity-50': 'bg-white'} cursor-pointer group relative">
+                            <div onclick="toggleTask('${t.id}', ${t.done})" class="neo-card p-5 rounded-3xl flex items-center gap-4 ${t.done ? 'bg-orange-50 opacity-50': 'bg-white'} cursor-pointer">
                                 <i data-lucide="${t.done ? 'check-circle' : 'circle'}" class="${t.done ? 'text-orange-500':''}"></i>
                                 <div class="flex-1">
                                     <p class="font-black ${t.done ? 'line-through':''}">${t.title.toUpperCase()}</p>
-                                    <div class="flex gap-1 mt-1">
-                                        ${t.isSquad ? '<span class="text-[8px] font-black text-orange-500 uppercase tracking-widest mr-2">Squad Goal</span>':''}
-                                        <span class="text-[8px] font-bold text-gray-400 uppercase tracking-widest">
-                                            ${t.days?.length === 7 ? 'Everyday' : t.days?.map(d => dayLabels[d]).join(' ')}
-                                        </span>
-                                    </div>
+                                    <span class="text-[8px] font-bold text-gray-400 uppercase tracking-widest">
+                                        ${t.isSquad ? '<span class="text-orange-500 mr-2">SQUAD</span>' : ''}${t.days?.length === 7 ? 'Everyday' : t.days?.map(d => dayLabels[d]).join(' ')}
+                                    </span>
                                 </div>
-                                <button onclick="deleteTask(event, '${t.id}')" class="p-2 text-gray-300 hover:text-red-500 transition-colors">
-                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                </button>
+                                <button onclick="deleteTask(event, '${t.id}')" class="p-2 text-gray-200 hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                             </div>`).join('')}
                     </div>
                     <div id="creator-panel" class="fixed bottom-24 left-6 right-6 max-w-md mx-auto ${!creatorExpanded ? 'creator-hidden':''}">
                         <div class="bg-orange-500 p-5 rounded-[2.5rem] text-white shadow-2xl border-4 border-black/10">
                             <button onclick="toggleCreator()" class="absolute -top-12 left-1/2 -translate-x-1/2 bg-black w-20 h-8 rounded-full flex items-center justify-center shadow-lg"><i data-lucide="${creatorExpanded?'chevron-down':'plus'}"></i></button>
                             <div class="mb-4">
-                                <p class="text-[10px] font-black uppercase mb-2 opacity-80 tracking-widest">Repeat on:</p>
+                                <p class="text-[10px] font-black uppercase mb-2 opacity-80 tracking-widest text-center">Repeat on:</p>
                                 <div class="flex justify-between gap-1">
-                                    ${dayLabels.map((l, i) => `
-                                        <button onclick="toggleDay(${i})" class="day-btn w-8 h-8 rounded-lg font-black text-xs transition-colors ${selectedDays.includes(i) ? 'active' : ''}">
-                                            ${l}
-                                        </button>
-                                    `).join('')}
+                                    ${dayLabels.map((l, i) => `<button onclick="toggleDay(${i})" class="day-btn w-8 h-8 rounded-lg font-black text-xs ${selectedDays.includes(i) ? 'active' : ''}">${l}</button>`).join('')}
                                 </div>
                             </div>
                             <div class="flex gap-2">
                                 <input id="task-in" type="text" placeholder="NEW HABIT..." class="flex-1 bg-white/20 rounded-2xl px-4 py-4 outline-none text-white font-black placeholder:text-white/50">
-                                <button onclick="addTask(false)" class="bg-white text-orange-500 p-4 rounded-2xl active:scale-90 transition-transform"><i data-lucide="check"></i></button>
+                                <button onclick="addTask(false)" class="bg-white text-orange-500 p-4 rounded-2xl"><i data-lucide="check"></i></button>
                             </div>
                         </div>
                     </div>`;
@@ -392,7 +390,7 @@
                 container.innerHTML = !group ? `
                     <div class="text-center pt-20 px-4">
                         <i data-lucide="users" class="w-16 h-16 mx-auto mb-6 text-gray-200"></i>
-                        <h2 class="text-2xl font-black mb-8 uppercase tracking-tighter">Squad Up</h2>
+                        <h2 class="text-2xl font-black mb-8 uppercase tracking-tighter italic">Squad Up</h2>
                         <button onclick="createSquad()" class="w-full bg-orange-500 text-white py-5 rounded-3xl font-black mb-4 shadow-lg uppercase active:scale-95 transition-all">Create Squad</button>
                         <button onclick="joinSquad()" class="w-full border-4 border-black py-5 rounded-3xl font-black uppercase active:scale-95 transition-all">Join with ID</button>
                     </div>` : `
@@ -409,23 +407,35 @@
                         <i data-lucide="flame" class="absolute -bottom-10 -right-10 w-40 h-40 opacity-10 rotate-12" fill="currentColor"></i>
                     </div>
                     <div class="bg-orange-50 border-2 border-orange-200 p-6 rounded-[2.5rem] mb-8">
-                        <p class="text-[10px] font-black uppercase text-orange-800 mb-4 tracking-widest text-center">Add Squad Goal</p>
+                        <p class="text-[10px] font-black uppercase text-orange-800 mb-4 tracking-widest text-center">Add Squad Habit</p>
                         <div class="flex gap-2">
                             <input id="group-task-in" type="text" placeholder="Squad habit..." class="flex-1 bg-white border-2 border-orange-200 rounded-2xl px-4 py-3 font-bold text-sm outline-none">
                             <button onclick="addTask(true)" class="bg-orange-500 text-white p-3 rounded-2xl"><i data-lucide="plus"></i></button>
                         </div>
                     </div>
                     <div class="space-y-4">
-                        <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4">Activity Feed</h3>
+                        <h3 class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4">Squad Progress (Today)</h3>
                         ${members.map(m => {
                             const mTasks = memberTasks[m.id] || [];
-                            const pct = mTasks.length > 0 ? (mTasks.filter(t => t.done).length / mTasks.length) * 100 : 0;
+                            // PROGRESS LOGIC: Only count tasks assigned for TODAY
+                            const todayTasks = mTasks.filter(t => t.days?.includes(today));
+                            const doneToday = todayTasks.filter(t => t.done).length;
+                            const totalToday = todayTasks.length;
+                            const pct = totalToday > 0 ? (doneToday / totalToday) * 100 : (mTasks.length > 0 ? 0 : 100); 
+                            
                             return `<div class="bg-white border-2 border-gray-100 p-5 rounded-[2rem] flex items-center gap-4">
                                 <div class="w-12 h-12 rounded-2xl ${pct===100?'bg-orange-500 text-white':'bg-gray-100 text-gray-400'} flex items-center justify-center font-black text-xl">
                                     ${pct===100 ? '<i data-lucide="check"></i>' : (m.name?.[0] || 'U').toUpperCase()}</div>
-                                <div class="flex-1"><p class="font-black uppercase text-sm">${m.name || 'SQUAD MEMBER'}</p>
-                                <div class="w-full bg-gray-100 h-2 rounded-full mt-2 overflow-hidden">
-                                <div class="progress-bar bg-orange-500 h-full" style="width: ${pct}%"></div></div></div></div>`;
+                                <div class="flex-1">
+                                    <div class="flex justify-between items-center mb-1">
+                                        <p class="font-black uppercase text-xs">${m.name || 'MEMBER'}</p>
+                                        <span class="text-[10px] font-bold text-gray-400">${doneToday}/${totalToday}</span>
+                                    </div>
+                                    <div class="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                                        <div class="progress-bar bg-orange-500 h-full" style="width: ${pct}%"></div>
+                                    </div>
+                                </div>
+                            </div>`;
                         }).join('')}
                     </div>
                     <div class="mt-10 p-4 text-center cursor-pointer" onclick="navigator.clipboard.writeText('${group.id}')">
@@ -434,10 +444,10 @@
                     </div>`;
             } else if (activeView === 'settings') {
                 container.innerHTML = `
-                    <h2 class="text-3xl font-black italic mb-8 uppercase tracking-tighter text-center">Profile</h2>
+                    <h2 class="text-3xl font-black italic mb-8 uppercase tracking-tighter text-center">Settings</h2>
                     <div class="bg-gray-50 p-8 rounded-[3rem] mb-4 text-center">
-                        <p class="font-black text-xl mb-1">${user ? (user.displayName || 'User') : 'Loading...'}</p>
-                        <p class="text-gray-400 font-bold text-xs uppercase">${user ? (user.email || 'NO EMAIL') : ''}</p>
+                        <p class="font-black text-xl mb-1">${user?.displayName || 'User'}</p>
+                        <p class="text-gray-400 font-bold text-xs uppercase">${user?.email || ''}</p>
                     </div>
                     <button onclick="logout()" class="w-full border-4 border-black py-5 rounded-3xl font-black text-red-500 uppercase tracking-widest text-sm">Sign Out</button>`;
             }
